@@ -1,34 +1,133 @@
 script_name('TaxiHUD')
 script_author("Serhiy_Rubin")
-script_version("01/12/2019")
-local inicfg, sampev, ffi, vkeys = require 'inicfg', require 'lib.samp.events', require("ffi"), require 'lib.vkeys'
+script_version("1.10.07.20")
+
+function try(f, catch_f)
+  local status, exception = pcall(f)
+  if not status then
+    catch_f(exception)
+  end
+end
+
+try(function()
+ sampev, inicfg, dlstatus, vkeys, ffi =
+    require "lib.samp.events",
+    require "inicfg",
+    require("moonloader").download_status,
+    require "lib.vkeys",
+    require("ffi")
+	
+  end, function(e)
+    sampAddChatMessage(">> Произошла ошибка на этапе загрузки библиотек. Возможно у вас нет SAMP.Lua", 0xff0000)
+    sampAddChatMessage(">> Официальная страница Taxi HUD: https://vk.com/rubin.mods",0xff0000)
+	sampAddChatMessage(e, -1)
+	thisScript():unload()
+  end)
+
 ffi.cdef [[ bool SetCursorPos(int X, int Y); ]]
 local id, antiflood, checkSkill, payCheck, count, passajir, chai, driver, hud, checkGPS, farm, GPS, GPStime, passj = 0, 0, 1, 1, 0, {}, 0, false, false, 1,{}, false, 0, 0
 local noobQuest, QuestRead = {}, 0
+local call_coord = { x = 0.0, y = 0.0, z = 0.0 }
 
 function main()
 	if not isSampLoaded() or not isSampfuncsLoaded() then return end
 	while not isSampAvailable() do wait(100) end
+
 	repeat wait(0) until sampGetCurrentServerName() ~= 'SA-MP'
-	repeat 
-		wait(0)
-		for id = 0, 2303 do
-			if sampTextdrawIsExists(id) and sampTextdrawGetString(id):find('Samp%-Rp.Ru') then
-				samp_rp = true
-			end
-		end
-	until samp_rp ~= nil
+	repeat wait(0) until sampGetCurrentServerName():find('Samp%-Rp.Ru')
+
 	local _, my_id = sampGetPlayerIdByCharHandle(PLAYER_PED)
 	server = sampGetCurrentServerName():gsub('|', '')
-	server = (server:find('02') and 'Two' or (server:find('Revolution') and 'Revolution' or (server:find('Legacy') and 'Legacy' or (server:find('Reborn') and 'Reborn' or 'Two'))))
+	server = (server:find('02') and 'Two' or (server:find('Revolution') and 'Revolution' or (server:find('Legacy') and 'Legacy' or (server:find('Classic') and 'Classic' or ''))))
+    if server == "" then thisScript():unload() end
 	nickname = sampGetPlayerNickname(my_id)
-	lua_thread.create(function()
-		wait(1000)
-		while true do
-			wait(0)
+	adress = { 
+		player = string.format("TaxiHUD\\%s-%s.ini", server, nickname),
+		binder = string.format("%s\\moonloader\\config\\TaxiHUD\\Binder.txt", getGameDirectory()),
+		general = string.format("TaxiHUD\\Settings.ini"),
+	}
+	local x1, y1 = convertGameScreenCoordsToWindowScreenCoords(14.992679595947, 274.75)
+    local x2, y2 = convertGameScreenCoordsToWindowScreenCoords(146.17861938477, 345.91665649414)
+    ini1 =
+        inicfg.load(
+        {
+            Settings = {
+               Key1 = 'VK_RBUTTON',
+               Key2 = 'VK_X',
+               FontName = 'Segoe UI',
+               FontSize = 10,
+               FontFlag = 13,
+               X = x1,
+               Y = y1,
+               XX = x2,
+               YY = y2,
+               GPSkd = 30000,
+               check_update = true
+            }
+        },
+        adress.general
+    )
+    inicfg.save(ini1, adress.general)
+    ini2 =
+        inicfg.load(
+        {
+            Settings = {
+               Skill = 1,
+               SkillPrc = 1.1,
+               Rank = 1,
+               RankPrc = 1.1,
+               OgranZP = 0
+            }
+        },
+        adress.player
+    )
+    inicfg.save(ini1, adress.player)
+	if not doesFileExist(adress.binder) then
+		local text = "/service\nКуда?\nУдачи\n/t !id Ваш вызов актуален? Мне до вас !dist км\n/t !id Еду, мне до вас !dist км\n/t !id К сожалению я не могу приехать\n"
+		file = io.open(adress.binder, "a")	
+		file:write(text)
+		file:flush()
+		io.close(file)
+	end
+    if ini1.Settings.check_update then
+        local fpath = os.getenv("TEMP") .. "\\TaxiHUD-version.txt"
+        downloadUrlToFile("https://raw.githubusercontent.com/Serhiy-Rubin/TaxiHUD/master/version", fpath,
+            function(id, status, p1, p2)
+                if status == dlstatus.STATUS_ENDDOWNLOADDATA then
+                    local f = io.open(fpath, "r")
+                    if f then
+                        local text = f:read("*a")
+                        if text ~= nil then
+                            if not string.find(text, tostring(thisScript().version)) then
+                                sampAddChatMessage(
+                                    ">> Вышло обновление для Taxi HUD, версия от " ..
+                                        text .. ". Текущая версия от " .. thisScript().version,
+                                    0xFF2f72f7
+                                )
+                                sampAddChatMessage(
+                                    ">> Посмотреть список изменений: /taxi up. Включить/Выключить уведомления: /taxi ad",
+                                    0xFF2f72f7
+                                )
+                                sampAddChatMessage(
+                                    ">> Официальная страница Taxi HUD: https://vk.com/rubin.mods",
+                                    0xFF2f72f7
+                                )
+                            end
+                        end
+                        io.close(f)
+                    end
+                end
+            end
+        )
+    end
+	font = renderCreateFont(ini1.Settings.FontName, ini1.Settings.FontSize, ini1.Settings.FontFlag)
+	lua_thread.create(menu)
+	while true do
+		wait(0)
 			ms = math.ceil(os.clock() * 1000 - antiflood)
 			msGPS = math.ceil(os.clock() * 1000 - GPStime)
-			if ms > 2000 and not sampIsDialogActive() and not sampIsChatInputActive() then
+			if (now_upd ~= nil or (hud or control)) and ms > 2000 and not sampIsDialogActive() and not sampIsChatInputActive() then
+				now_upd = 1
 				if checkSkill == 1 then
 					checkSkill = 2
 					sampSendChat("/jskill")
@@ -47,43 +146,7 @@ function main()
 					end
 				end
 			end
-		end
-	end)
-	adress = { 
-		config = string.format("%s\\moonloader\\config", getGameDirectory()),
-		folder = string.format("%s\\moonloader\\config\\TaxiHUD", getGameDirectory()),
-		player = string.format("%s\\moonloader\\config\\TaxiHUD\\%s-%s.ini", getGameDirectory(), server, nickname),
-		binder = string.format("%s\\moonloader\\config\\TaxiHUD\\Binder.txt", getGameDirectory()),
-		general = string.format("%s\\moonloader\\config\\TaxiHUD\\Settings.ini", getGameDirectory()),
-		}
-	if not doesDirectoryExist(adress.config) then createDirectory(adress.config) end
-	if not doesDirectoryExist(adress.folder) then createDirectory(adress.folder) end
-	if not doesFileExist(adress.general) then
-		local text = "[Settings]\nKey1=VK_RBUTTON\nKey2=VK_X\nFontName=Segoe UI\nFontSize=10\nFontFlag=13\nX=0\nY=0\nXX=0\nYY=0\nGPSkd=30000"
-		file = io.open(adress.general, "a")	
-		file:write(text)
-		file:flush()
-		io.close(file)
 	end
-	if not doesFileExist(adress.binder) then
-		local text = "/service\nДобрый день! Куда едем?\nДо свидания!\n/t !id Ваш вызов актуален?\n/t !id Еду\n/t !id К сожалению я не могу приехать\n"
-		file = io.open(adress.binder, "a")	
-		file:write(text)
-		file:flush()
-		io.close(file)
-	end
-	if not doesFileExist(adress.player) then
-		local text = "[Settings]\nSkill=1\nSkillPrc=1.1\nRank=1\nRankPrc=1.1\nOgranZP=0"
-		file = io.open(adress.player, "a")	
-		file:write(text)
-		file:flush()
-		io.close(file)
-	end
-	ini1 = inicfg.load(nil, adress.general)
-	ini2 = inicfg.load(nil, adress.player)
-	font = renderCreateFont(ini1.Settings.FontName, ini1.Settings.FontSize, ini1.Settings.FontFlag)
-	lua_thread.create(menu)
-	wait(-1)
 end
 
 function menu()
@@ -181,7 +244,7 @@ function menu()
 			end
 		end
 		if isKeyDown(vkeys[ini1.Settings.Key1]) and (isTaxi() or isKeyDown(vkeys[ini1.Settings.Key2])) and not sampIsScoreboardOpen() and sampIsChatVisible() and not sampIsDialogActive() and not isKeyDown(116) and not isKeyDown(121) then
-			showCursor(true, false)
+			sampSetCursorMode(3)
 			local X, Y = getScreenResolution()
 			if not control then 
 				ffi.C.SetCursorPos((X / 2), (Y / 2)) 
@@ -219,6 +282,8 @@ function menu()
 			for i = 1, #BindText do
 				Y = Y + ind
 				local strings = BindText[i]:gsub("!id", id)
+				local distance = getDistanceBetweenCoords3d(call_coord.x, call_coord.y, call_coord.z, getCharCoordinates(playerPed))
+				local strings = strings:gsub("!dist", math.ceil(distance) / 1000)
 				if Click(font, strings, ((X / 2) - (renderGetFontDrawTextLength(font, strings) / 2)), Y) then
 					sampSendChat(strings)
 				end
@@ -232,7 +297,7 @@ function menu()
 		end
 		if control and not isKeyDown(vkeys[ini1.Settings.Key1]) then
 			control = false 
-			showCursor(false, false)	
+			sampSetCursorMode(0)
 		end
 	end
 end
@@ -253,7 +318,20 @@ function sampev.onShowDialog(DdialogId, Dstyle, Dtitle, Dbutton1, Dbutton2, Dtex
 	if Dstyle == 0 and Dtitle == 'Статистика' and QuestRead == 3 then
 		local name, sl, qn, etap, progress = string.match(Dtext, '	Имя: {FFCC00}(.+){996633}.*================================.*.*{CC9933}%[Выполняется%].*{FFFFFF}	С.линия:{FFCC00} (.+){FFFFFF}.*	Квест:{FFCC00} (.+){FFFFFF}.*	Этап:{FFCC00} (.+){FFFFFF}.*	Прогресс:{FFCC00} (.+){FFFFFF}')
 		if name ~= nil then
-			noobQuest[name] = string.format('[%s] [%s] [%s] [%s]', sl, qn, etap, progress)
+			local result = ''
+			if sl:find('Гость') then
+				local quest_list = {
+					['1 / 5'] = 'Грузчики: '..progress,
+					['2 / 5'] = 'Автошкола',
+					['3 / 5'] = 'Ферма: '..progress,
+					['4 / 5'] = 'Одежда',
+					['5 / 5'] = 'Мэрия',
+				}
+				if quest_list[qn] ~= nil then
+					result = 'Квест: '..quest_list[qn]
+				end
+			end
+			noobQuest[name] = result
 		end
 		sampSendDialogResponse(DdialogId, 1, 0, '')
 		return false
@@ -309,7 +387,37 @@ function sampev.onSendCommand(cmd)  antiflood = os.clock() * 1000
 	if cmd:lower() == "/taxi" then
 		lua_thread.create(function() DialogText(0) end)
 		return false
+	elseif cmd:lower() == "/taxi up" then
+            lua_thread.create(
+                function()
+                    local fpath = os.getenv("TEMP") .. "\\TaxiHUD-up.txt"
+                    downloadUrlToFile(
+                        "https://raw.githubusercontent.com/Serhiy-Rubin/TaxiHUD/master/changelog",
+                        fpath,
+                        function(id, status, p1, p2)
+                            if status == dlstatus.STATUS_ENDDOWNLOADDATA then
+                                local f = io.open(fpath, "r")
+                                if f then
+                                    local text = f:read("*a")
+                                    if text ~= nil then
+                                        sampShowDialog(222, "Changelog", "{FFFFFF}"..text, "Закрыть", "", 0)
+                                    end
+                                    io.close(f)
+                                end
+                            end
+                        end
+                    )
+                end
+            )
+	elseif cmd:lower() == "/taxi ad" then
+		ini1.Settings.check_update = not ini1.Settings.check_update
+		printString((ini1.Settings.check_update and 'Check Update - ON' or 'Check Update - OFF'), 1000)
+		inicfg.save(ini1, adress.general)
 	end
+end
+
+function sampev.onSetRaceCheckpoint(type, position)
+	call_coord = position
 end
 
 function sampev.onServerMessage(color, message) 
@@ -391,7 +499,7 @@ function DialogText(A1, A2)
 		end
 	end
 	if A1 == 2 then
-		ShowDialog("Биндер TAXI HUD", "{FFFFFF}Введите текст для биндера\n!id - заменится на ID человека чей вызов Вы приняли", "Выбрать", "Закрыть", 1, A1)
+		ShowDialog("Биндер TAXI HUD", "{FFFFFF}Введите текст для биндера\n!id - заменится на ID человека чей вызов Вы приняли\n!dist - заменится на дистанцию до метки вызова", "Выбрать", "Закрыть", 1, A1)
 	end
 	if A1 == 3 then
 		local file = io.open(adress.binder, "r")
@@ -532,8 +640,8 @@ function Click(font, text, posX, posY)
    local textLenght = renderGetFontDrawTextLength(font, text)
    local textHeight = renderGetFontDrawHeight(font)
    local curX, curY = getCursorPos()
-   if curX >= posX and curX <= posX + textLenght and curY >= posY and curY <= posY + textHeight then
-     renderFontDrawText(font, "{FFFFFF}"..text, posX, posY, 0xFFFFFFFF)
+   if curX >= posX and curX <= posX + textLenght and curY >= posY and curY <= posY + textHeight and control then
+   	 renderFontDrawText(font, text, posX, posY, 0xFFFFFFFF)	
      if isKeyJustPressed(1) then
        return true
      end
@@ -541,7 +649,7 @@ function Click(font, text, posX, posY)
 end
 
 function isTaxi()
-	if (isCharInModel(PLAYER_PED, 420) or isCharInModel(PLAYER_PED, 438) or isCharInModel(PLAYER_PED, 405) or isCharInModel(PLAYER_PED, 560) or isCharInModel(PLAYER_PED, 402)) then 
+	if (isCharInModel(PLAYER_PED, 420) or isCharInModel(PLAYER_PED, 438) or isCharInModel(PLAYER_PED, 405) or isCharInModel(PLAYER_PED, 560) or isCharInModel(PLAYER_PED, 402)) and getDriverOfCar(getCarCharIsUsing(playerPed)) == playerPed then 
 		local Vehicle = storeCarCharIsInNoSave(PLAYER_PED)
 		local Color1, Color2 = getCarColours(Vehicle)
 		if Color1 == 6 then
