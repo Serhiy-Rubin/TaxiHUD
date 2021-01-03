@@ -1,6 +1,6 @@
 script_name('TaxiHUD')
 script_author("Serhiy_Rubin")
-script_version("1.10.07.20")
+script_version("21.01.03.1")
 
 function try(f, catch_f)
   local status, exception = pcall(f)
@@ -34,7 +34,7 @@ function main()
 	while not isSampAvailable() do wait(100) end
 
 	repeat wait(0) until sampGetCurrentServerName() ~= 'SA-MP'
-	repeat wait(0) until sampGetCurrentServerName():find('Samp%-Rp.Ru')
+	repeat wait(0) until sampGetCurrentServerName():find('Samp%-Rp.Ru') or sampGetCurrentServerName():find('SRP')
 
 	local _, my_id = sampGetPlayerIdByCharHandle(PLAYER_PED)
 	server = sampGetCurrentServerName():gsub('|', '')
@@ -194,14 +194,14 @@ function menu()
 					wait(100)
 					repeat
 						wait(0)
-						sampToggleCursor(false)
+						sampSetCursorMode(1)
 						local X, Y = getCursorPos()
 						ini1.Settings.X = X
 						ini1.Settings.Y = Y
-						inicfg.save(ini1, adress.general)
 					until wasKeyPressed(1) 
 					wait(100)
-					sampToggleCursor(false)
+					inicfg.save(ini1, adress.general)
+					sampSetCursorMode(0)
 				end)
 			end
 			if GPS and #farm > 0 then
